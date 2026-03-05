@@ -1,0 +1,30 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  background: #0d0d1a;
+  color: #fff;
+  /* Prevent double-tap zoom on mobile */
+  touch-action: manipulation;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Prevent text selection on tappable elements */
+.tap {
+  user-select: none;
+  -webkit-user-select: none;
+}
