@@ -8,7 +8,16 @@
       "Bash(cp:*)",
       "Bash(tail:*)",
       "Bash(npm run:*)",
-      "Bash(git init:*)"
+      "Bash(git init:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(head:*)",
+      "Bash(chmod +x:*)",
+      "Bash(echo:*)",
+      "Bash(python3:*)",
+      "Bash(npx vercel:*)",
+      "Bash(vercel:*)",
+      "Bash(git add *)"
     ]
   }
 }

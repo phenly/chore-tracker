@@ -12,10 +12,11 @@ import PaydayModal from './PaydayModal'
 export default function CurrentWeek({ weekStart }) {
   const todayIndex = getTodayIndex()
   const [showModal, setShowModal] = useState(false)
+  const [showUnmarkConfirm, setShowUnmarkConfirm] = useState(false)
   const {
     baselineChecks, dailyChecks, weeklyChecks,
-    isPaid, loading, error, ps5Savings,
-    toggleBaseline, toggleDaily, toggleWeekly, markPaid,
+    isPaid, totalEarned, loading, error, ps5PaidSavings,
+    toggleBaseline, toggleDaily, toggleWeekly, markPaid, unmarkPaid,
   } = useWeekData(weekStart)
 
   const earnings = computeEarnings({ baselineChecks, dailyChecks, weeklyChecks, todayIndex })
@@ -25,6 +26,14 @@ export default function CurrentWeek({ weekStart }) {
     await markPaid(total, baselineEarnings, dailyEarnings, weeklyEarnings)
     setShowModal(false)
   }
+
+  const handleUnmark = async () => {
+    await unmarkPaid()
+    setShowUnmarkConfirm(false)
+  }
+
+  // PS5 bar: paid segment = locked savings, unpaid = this week's potential
+  const unpaidSavings = isPaid ? 0 : total
 
   if (loading) {
     return (
@@ -66,7 +75,7 @@ export default function CurrentWeek({ weekStart }) {
         baselineComplete={baselineComplete}
       />
 
-      <PS5Bar savings={ps5Savings} />
+      <PS5Bar paidSavings={ps5PaidSavings} unpaidSavings={unpaidSavings} />
 
       <BaselineSection
         baselineChecks={baselineChecks}
@@ -93,17 +102,67 @@ export default function CurrentWeek({ weekStart }) {
         completedWeekly={completedWeekly}
       />
 
-      {/* Payday button */}
+      {/* Payday / unmark button */}
       <div style={{ margin: '0 16px 8px' }}>
         {isPaid ? (
-          <div style={{
-            width: '100%', padding: '16px', borderRadius: '14px',
-            background: 'rgba(74,222,128,0.1)',
-            border: '1px solid rgba(74,222,128,0.3)',
-            textAlign: 'center', fontSize: '1rem', fontWeight: 800, color: '#4ade80',
-          }}>
-            ✅ Week Paid — {fmtDollar(total)}
-          </div>
+          <>
+            <div style={{
+              width: '100%', padding: '16px', borderRadius: '14px',
+              background: 'rgba(74,222,128,0.1)',
+              border: '1px solid rgba(74,222,128,0.3)',
+              textAlign: 'center', fontSize: '1rem', fontWeight: 800, color: '#4ade80',
+              marginBottom: '10px',
+            }}>
+              ✅ Week Paid — {fmtDollar(totalEarned ?? total)}
+            </div>
+            {showUnmarkConfirm ? (
+              <div style={{
+                background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: '14px', padding: '16px',
+              }}>
+                <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.7)', marginBottom: '12px', textAlign: 'center' }}>
+                  This will unlock the week for editing and remove{' '}
+                  <span style={{ color: '#f87171', fontWeight: 700 }}>{fmtDollar(totalEarned ?? total)}</span>{' '}
+                  from the PS5 paid balance. Continue?
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    onClick={() => setShowUnmarkConfirm(false)}
+                    style={{
+                      flex: 1, padding: '12px', borderRadius: '10px',
+                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                      color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleUnmark}
+                    style={{
+                      flex: 1, padding: '12px', borderRadius: '10px',
+                      background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)',
+                      color: '#f87171', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer',
+                    }}
+                  >
+                    Unlock Week
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowUnmarkConfirm(true)}
+                style={{
+                  width: '100%', padding: '12px',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '12px', color: 'rgba(255,255,255,0.4)',
+                  fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                🔓 Unmark as Paid
+              </button>
+            )}
+          </>
         ) : (
           <button
             onClick={() => setShowModal(true)}

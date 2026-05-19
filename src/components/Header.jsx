@@ -21,7 +21,7 @@ export default function Header({ weekStart }) {
           backgroundClip: 'text',
           animation: 'shimmer 3s linear infinite',
         }}>
-          Max's Money Maker
+          The Allowance Arcade
         </div>
         <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
           {formatWeekRange(weekStart)}

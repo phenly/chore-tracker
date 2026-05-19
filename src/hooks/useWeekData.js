@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { getWeekStartStr, DAILY_BONUS, WEEKLY_BONUS } from '../lib/utils'
+import { getAllWeeks } from '../lib/utils'
 
 const EMPTY_BASELINE = {
   bed: [false, false, false, false, false, false, false],
@@ -25,15 +25,47 @@ function buildEmptyState() {
   }
 }
 
+function buildStateFromRows(baselineRows, dailyRows, weeklyRows, weekRow) {
+  const newState = buildEmptyState()
+
+  for (const row of baselineRows) {
+    if (row.chore_id === 'laundry' || row.day_index === -1) {
+      newState.baselineChecks.laundry = row.checked
+    } else if (row.day_index >= 0 && newState.baselineChecks[row.chore_id]) {
+      newState.baselineChecks[row.chore_id][row.day_index] = row.checked
+    }
+  }
+
+  for (const row of dailyRows) {
+    if (newState.dailyChecks[row.chore_id]) {
+      newState.dailyChecks[row.chore_id][row.day_index] = row.checked
+    }
+  }
+
+  for (const row of weeklyRows) {
+    if (row.chore_id in newState.weeklyChecks) {
+      newState.weeklyChecks[row.chore_id] = row.checked
+    }
+  }
+
+  if (weekRow) {
+    newState.isPaid = weekRow.is_paid
+    newState.paidAt = weekRow.paid_at
+    newState.totalEarned = weekRow.total_earned
+  }
+
+  return newState
+}
+
 export function useWeekData(weekStart) {
   const [state, setState] = useState(buildEmptyState())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [ps5Savings, setPs5Savings] = useState(0)
+  const [ps5PaidSavings, setPs5PaidSavings] = useState(0)
   const stateRef = useRef(state)
   stateRef.current = state
 
-  // Load all data for this week
+  // Initial load only — never called again after mount
   const loadWeek = useCallback(async (ws) => {
     setLoading(true)
     setError(null)
@@ -52,40 +84,16 @@ export function useWeekData(weekStart) {
       if (weeksRes.error) throw weeksRes.error
       if (ps5Res.error) throw ps5Res.error
 
-      // Build state from DB rows
-      const newState = buildEmptyState()
-
-      for (const row of baselineRes.data || []) {
-        if (row.chore_id === 'laundry' || row.day_index === -1) {
-          newState.baselineChecks.laundry = row.checked
-        } else if (row.day_index >= 0) {
-          newState.baselineChecks[row.chore_id][row.day_index] = row.checked
-        }
-      }
-
-      for (const row of dailyRes.data || []) {
-        if (newState.dailyChecks[row.chore_id]) {
-          newState.dailyChecks[row.chore_id][row.day_index] = row.checked
-        }
-      }
-
-      for (const row of weeklyRes.data || []) {
-        if (row.chore_id in newState.weeklyChecks) {
-          newState.weeklyChecks[row.chore_id] = row.checked
-        }
-      }
-
-      if (weeksRes.data) {
-        newState.isPaid = weeksRes.data.is_paid
-        newState.paidAt = weeksRes.data.paid_at
-        newState.totalEarned = weeksRes.data.total_earned
-      }
-
-      // Compute PS5 savings from all paid weeks
+      const newState = buildStateFromRows(
+        baselineRes.data || [],
+        dailyRes.data || [],
+        weeklyRes.data || [],
+        weeksRes.data,
+      )
       const savings = (ps5Res.data || []).reduce((sum, row) => sum + Number(row.total_earned || 0), 0)
-      setPs5Savings(savings)
 
       setState(newState)
+      setPs5PaidSavings(savings)
     } catch (err) {
       console.error('Failed to load week data:', err)
       setError(err.message || 'Failed to load data')
@@ -98,40 +106,108 @@ export function useWeekData(weekStart) {
     if (weekStart) loadWeek(weekStart)
   }, [weekStart, loadWeek])
 
-  // Realtime subscriptions for live family sync
+  // Realtime: apply payload changes directly to state — no re-fetch, no loading flash.
+  // This handles updates from OTHER family devices. Own-device changes are already
+  // reflected via optimistic updates, so echoed events are no-ops (state matches DB).
   useEffect(() => {
     if (!weekStart) return
 
-    const channels = [
-      supabase.channel(`baseline-${weekStart}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'baseline_checks', filter: `week_start=eq.${weekStart}` },
-          () => loadWeek(weekStart))
-        .subscribe(),
-      supabase.channel(`daily-${weekStart}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_bonus_checks', filter: `week_start=eq.${weekStart}` },
-          () => loadWeek(weekStart))
-        .subscribe(),
-      supabase.channel(`weekly-${weekStart}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'weekly_bonus_checks', filter: `week_start=eq.${weekStart}` },
-          () => loadWeek(weekStart))
-        .subscribe(),
-      supabase.channel(`weeks-${weekStart}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'weeks', filter: `week_start=eq.${weekStart}` },
-          () => loadWeek(weekStart))
-        .subscribe(),
-    ]
+    const baseline = supabase
+      .channel(`rt-baseline-${weekStart}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'baseline_checks', filter: `week_start=eq.${weekStart}` },
+        ({ new: row }) => {
+          if (!row) return
+          setState((prev) => {
+            const next = JSON.parse(JSON.stringify(prev))
+            if (row.chore_id === 'laundry' || row.day_index === -1) {
+              next.baselineChecks.laundry = row.checked
+            } else if (row.day_index >= 0 && next.baselineChecks[row.chore_id]) {
+              next.baselineChecks[row.chore_id][row.day_index] = row.checked
+            }
+            return next
+          })
+        },
+      )
+      .subscribe()
 
-    return () => channels.forEach((c) => supabase.removeChannel(c))
-  }, [weekStart, loadWeek])
+    const daily = supabase
+      .channel(`rt-daily-${weekStart}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'daily_bonus_checks', filter: `week_start=eq.${weekStart}` },
+        ({ new: row }) => {
+          if (!row) return
+          setState((prev) => {
+            const next = JSON.parse(JSON.stringify(prev))
+            if (next.dailyChecks[row.chore_id]) {
+              next.dailyChecks[row.chore_id][row.day_index] = row.checked
+            }
+            return next
+          })
+        },
+      )
+      .subscribe()
 
-  // Toggle baseline daily chore
+    const weekly = supabase
+      .channel(`rt-weekly-${weekStart}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'weekly_bonus_checks', filter: `week_start=eq.${weekStart}` },
+        ({ new: row }) => {
+          if (!row) return
+          setState((prev) => ({
+            ...prev,
+            weeklyChecks: { ...prev.weeklyChecks, [row.chore_id]: row.checked },
+          }))
+        },
+      )
+      .subscribe()
+
+    const weeks = supabase
+      .channel(`rt-weeks-${weekStart}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'weeks', filter: `week_start=eq.${weekStart}` },
+        ({ new: row }) => {
+          if (!row) return
+          setState((prev) => ({
+            ...prev,
+            isPaid: row.is_paid,
+            paidAt: row.paid_at,
+            totalEarned: row.total_earned,
+          }))
+          // Recompute PS5 savings silently when payday changes from another device
+          supabase
+            .from('weeks')
+            .select('total_earned')
+            .eq('is_paid', true)
+            .then(({ data }) => {
+              if (data) {
+                const savings = data.reduce((sum, r) => sum + Number(r.total_earned || 0), 0)
+                setPs5PaidSavings(savings)
+              }
+            })
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(baseline)
+      supabase.removeChannel(daily)
+      supabase.removeChannel(weekly)
+      supabase.removeChannel(weeks)
+    }
+  }, [weekStart])
+
+  // Toggle baseline daily chore — optimistic update, then sync
   const toggleBaseline = useCallback(async (choreId, dayIndex) => {
     if (stateRef.current.isPaid) return
     const newVal = choreId === 'laundry'
       ? !stateRef.current.baselineChecks.laundry
       : !stateRef.current.baselineChecks[choreId][dayIndex]
 
-    // Optimistic update
     setState((prev) => {
       const next = JSON.parse(JSON.stringify(prev))
       if (choreId === 'laundry') {
@@ -142,22 +218,19 @@ export function useWeekData(weekStart) {
       return next
     })
 
-    // day_index: -1 for laundry (once/week), 0-6 for daily
-    const row = {
-      week_start: weekStart,
-      chore_id: choreId,
-      day_index: choreId === 'laundry' ? -1 : dayIndex,
-      checked: newVal,
-      updated_at: new Date().toISOString(),
-    }
-
-    await supabase.from('baseline_checks').upsert(row, {
-      onConflict: 'week_start,chore_id,day_index',
-      ignoreDuplicates: false,
-    })
+    supabase.from('baseline_checks').upsert(
+      {
+        week_start: weekStart,
+        chore_id: choreId,
+        day_index: choreId === 'laundry' ? -1 : dayIndex,
+        checked: newVal,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'week_start,chore_id,day_index', ignoreDuplicates: false },
+    ).then(({ error }) => { if (error) console.error('baseline sync error:', error) })
   }, [weekStart])
 
-  // Toggle daily bonus chore
+  // Toggle daily bonus chore — optimistic update, then sync
   const toggleDaily = useCallback(async (choreId, dayIndex) => {
     if (stateRef.current.isPaid) return
     const newVal = !stateRef.current.dailyChecks[choreId][dayIndex]
@@ -168,14 +241,14 @@ export function useWeekData(weekStart) {
       return next
     })
 
-    await supabase.from('daily_bonus_checks').upsert(
+    supabase.from('daily_bonus_checks').upsert(
       { week_start: weekStart, chore_id: choreId, day_index: dayIndex, checked: newVal, updated_at: new Date().toISOString() },
-      { onConflict: 'week_start,chore_id,day_index', ignoreDuplicates: false }
-    )
+      { onConflict: 'week_start,chore_id,day_index', ignoreDuplicates: false },
+    ).then(({ error }) => { if (error) console.error('daily sync error:', error) })
   }, [weekStart])
 
-  // Toggle weekly bonus chore
-  const toggleWeekly = useCallback(async (choreId) => {
+  // Toggle weekly bonus chore — optimistic update, then sync
+  const toggleWeekly = useCallback((choreId) => {
     if (stateRef.current.isPaid) return
     const newVal = !stateRef.current.weeklyChecks[choreId]
 
@@ -184,15 +257,18 @@ export function useWeekData(weekStart) {
       weeklyChecks: { ...prev.weeklyChecks, [choreId]: newVal },
     }))
 
-    await supabase.from('weekly_bonus_checks').upsert(
+    supabase.from('weekly_bonus_checks').upsert(
       { week_start: weekStart, chore_id: choreId, checked: newVal, updated_at: new Date().toISOString() },
-      { onConflict: 'week_start,chore_id', ignoreDuplicates: false }
-    )
+      { onConflict: 'week_start,chore_id', ignoreDuplicates: false },
+    ).then(({ error }) => { if (error) console.error('weekly sync error:', error) })
   }, [weekStart])
 
   // Mark week as paid
   const markPaid = useCallback(async (totalEarned, baselineEarned, dailyEarned, weeklyEarned) => {
     const now = new Date().toISOString()
+    setState((prev) => ({ ...prev, isPaid: true, paidAt: now, totalEarned }))
+    setPs5PaidSavings((prev) => prev + totalEarned)
+
     await supabase.from('weeks').upsert(
       {
         week_start: weekStart,
@@ -203,32 +279,57 @@ export function useWeekData(weekStart) {
         daily_earned: dailyEarned,
         weekly_earned: weeklyEarned,
       },
-      { onConflict: 'week_start', ignoreDuplicates: false }
+      { onConflict: 'week_start', ignoreDuplicates: false },
     )
-    setState((prev) => ({ ...prev, isPaid: true, paidAt: now, totalEarned }))
-    setPs5Savings((prev) => prev + totalEarned)
+  }, [weekStart])
+
+  // Unmark week as paid — reopens it for editing
+  const unmarkPaid = useCallback(async () => {
+    const removedTotal = stateRef.current.totalEarned || 0
+    setState((prev) => ({ ...prev, isPaid: false, paidAt: null }))
+    setPs5PaidSavings((prev) => Math.max(0, prev - removedTotal))
+
+    await supabase.from('weeks').upsert(
+      { week_start: weekStart, is_paid: false, paid_at: null },
+      { onConflict: 'week_start', ignoreDuplicates: false },
+    )
   }, [weekStart])
 
   return {
     ...state,
     loading,
     error,
-    ps5Savings,
+    ps5PaidSavings,
     toggleBaseline,
     toggleDaily,
     toggleWeekly,
     markPaid,
-    reload: () => loadWeek(weekStart),
+    unmarkPaid,
   }
 }
 
-// Load all paid weeks for history view
-export async function loadHistory() {
+// Load all weeks in history range — returns every week from HISTORY_START to now,
+// merging in DB rows where they exist (paid or unpaid) and filling gaps with zeroed rows.
+export async function loadAllWeeks() {
+  const allWeeks = getAllWeeks()
   const { data, error } = await supabase
     .from('weeks')
     .select('*')
-    .eq('is_paid', true)
-    .order('week_start', { ascending: false })
+    .in('week_start', allWeeks)
   if (error) throw error
-  return data || []
+
+  const weekMap = {}
+  for (const row of (data || [])) {
+    weekMap[row.week_start] = row
+  }
+
+  return allWeeks.map((ws) => ({
+    week_start: ws,
+    is_paid: false,
+    total_earned: 0,
+    baseline_earned: 0,
+    daily_earned: 0,
+    weekly_earned: 0,
+    ...weekMap[ws],
+  }))
 }

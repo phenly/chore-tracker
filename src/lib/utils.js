@@ -1,5 +1,22 @@
 // Date utilities
 
+// First Monday of tracked history — the Monday of the week containing March 1, 2026
+// (March 1, 2026 is a Sunday, so week starts Feb 23, 2026)
+export const HISTORY_START = '2026-02-23'
+
+// Returns all Monday week-start strings from HISTORY_START to the current week, descending
+export function getAllWeeks(today = new Date()) {
+  const weeks = []
+  const current = getWeekStart(today)
+  const start = new Date(HISTORY_START + 'T00:00:00')
+  let d = new Date(current)
+  while (d >= start) {
+    weeks.push(d.toISOString().split('T')[0])
+    d.setDate(d.getDate() - 7)
+  }
+  return weeks
+}
+
 // Returns the most recent Monday as a Date object
 export function getWeekStart(date = new Date()) {
   const d = new Date(date)
@@ -108,7 +125,9 @@ export function computeDayValues(checked, rates, todayIndex) {
     } else if (i <= todayIndex) {
       return { val: 0, type: 'missed' }
     } else {
-      return { val: slot < 7 ? rates[slot] : null, type: 'future' }
+      const val = { val: slot < 7 ? rates[slot] : null, type: 'future' }
+      slot++
+      return val
     }
   })
 }
