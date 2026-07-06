@@ -2,7 +2,31 @@ import { useState, useEffect } from 'react'
 import { loadAllWeeks } from '../hooks/useWeekData'
 import { formatWeekRange, fmtDollar, getWeekStartStr } from '../lib/utils'
 import Header from './Header'
+import PS5Bar from './PS5Bar'
 import WeekDetail from './WeekDetail'
+
+// Build a CSV of every week's earnings and trigger a download.
+function downloadWeeksCSV(weeks) {
+  const headers = ['Week Start', 'Base', 'Daily', 'Weekly', 'Total', 'Status']
+  const num = (v) => Number(v ?? 0).toFixed(2)
+  const rows = weeks.map((w) => [
+    w.week_start,
+    num(w.baseline_earned),
+    num(w.daily_earned),
+    num(w.weekly_earned),
+    num(w.total_earned),
+    w.is_paid ? 'Paid' : 'Unpaid',
+  ])
+  // Values are plain numbers / ISO dates / single words — no embedded commas to escape.
+  const csv = [headers, ...rows].map((r) => r.join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'allowance-history.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 export default function HistoryView() {
   const [weeks, setWeeks] = useState([])
@@ -28,12 +52,35 @@ export default function HistoryView() {
     )
   }
 
+  const paidSavings = weeks.filter((w) => w.is_paid).reduce((s, w) => s + Number(w.total_earned || 0), 0)
+  const unpaidSavings = weeks.filter((w) => !w.is_paid).reduce((s, w) => s + Number(w.total_earned || 0), 0)
+
   return (
     <>
       <Header weekStart={currentWeekStart} />
+
+      {!loading && !error && weeks.length > 0 && (
+        <PS5Bar paidSavings={paidSavings} unpaidSavings={unpaidSavings} />
+      )}
+
       <div style={{ padding: '16px' }}>
-        <div style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '16px', color: 'rgba(255,255,255,0.7)' }}>
-          📜 All Weeks
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'rgba(255,255,255,0.7)' }}>
+            📜 All Weeks
+          </div>
+          {!loading && !error && weeks.length > 0 && (
+            <button
+              onClick={() => downloadWeeksCSV(weeks)}
+              className="tap"
+              style={{
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: '10px', padding: '8px 12px', color: '#a78bfa',
+                fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              ⬇ Download CSV
+            </button>
+          )}
         </div>
 
         {loading && (

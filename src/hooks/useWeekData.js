@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { getAllWeeks } from '../lib/utils'
+import { getAllWeeks, getWeekStartStr, getTodayIndex, computeEarnings } from '../lib/utils'
 
 const EMPTY_BASELINE = {
   bed: [false, false, false, false, false, false, false],
@@ -308,28 +308,61 @@ export function useWeekData(weekStart) {
   }
 }
 
-// Load all weeks in history range — returns every week from HISTORY_START to now,
-// merging in DB rows where they exist (paid or unpaid) and filling gaps with zeroed rows.
+// Load all weeks in history range — returns every week from HISTORY_START to now.
+// Earnings are computed live from the check tables so UNPAID weeks show real totals
+// (the weeks table's *_earned columns are only written at payday). Paid weeks keep
+// their locked-in stored amounts — mirroring WeekDetail's paid-vs-live display rule.
 export async function loadAllWeeks() {
   const allWeeks = getAllWeeks()
-  const { data, error } = await supabase
-    .from('weeks')
-    .select('*')
-    .in('week_start', allWeeks)
-  if (error) throw error
+  const [weeksRes, baselineRes, dailyRes, weeklyRes] = await Promise.all([
+    supabase.from('weeks').select('*').in('week_start', allWeeks),
+    supabase.from('baseline_checks').select('*').in('week_start', allWeeks),
+    supabase.from('daily_bonus_checks').select('*').in('week_start', allWeeks),
+    supabase.from('weekly_bonus_checks').select('*').in('week_start', allWeeks),
+  ])
+  if (weeksRes.error) throw weeksRes.error
+  if (baselineRes.error) throw baselineRes.error
+  if (dailyRes.error) throw dailyRes.error
+  if (weeklyRes.error) throw weeklyRes.error
 
   const weekMap = {}
-  for (const row of (data || [])) {
-    weekMap[row.week_start] = row
-  }
+  for (const row of (weeksRes.data || [])) weekMap[row.week_start] = row
 
-  return allWeeks.map((ws) => ({
-    week_start: ws,
-    is_paid: false,
-    total_earned: 0,
-    baseline_earned: 0,
-    daily_earned: 0,
-    weekly_earned: 0,
-    ...weekMap[ws],
-  }))
+  const groupByWeek = (rows) => {
+    const grouped = {}
+    for (const row of (rows || [])) (grouped[row.week_start] ||= []).push(row)
+    return grouped
+  }
+  const baselineByWeek = groupByWeek(baselineRes.data)
+  const dailyByWeek = groupByWeek(dailyRes.data)
+  const weeklyByWeek = groupByWeek(weeklyRes.data)
+
+  // Past weeks count all 7 days as elapsed; the current week respects today's index.
+  const currentWeek = getWeekStartStr()
+  const currentTodayIndex = getTodayIndex()
+
+  return allWeeks.map((ws) => {
+    const weekRow = weekMap[ws]
+    const { baselineChecks, dailyChecks, weeklyChecks } = buildStateFromRows(
+      baselineByWeek[ws] || [],
+      dailyByWeek[ws] || [],
+      weeklyByWeek[ws] || [],
+      weekRow,
+    )
+    const todayIndex = ws === currentWeek ? currentTodayIndex : 6
+    const computed = computeEarnings({ baselineChecks, dailyChecks, weeklyChecks, todayIndex })
+
+    const isPaid = weekRow?.is_paid ?? false
+    // Paid weeks: use locked-in stored amounts (fall back to computed if a column is null
+    // on an older row). Unpaid weeks: always use freshly computed values.
+    const useStored = isPaid && weekRow
+    return {
+      week_start: ws,
+      is_paid: isPaid,
+      baseline_earned: useStored ? Number(weekRow.baseline_earned ?? computed.baselineEarnings) : computed.baselineEarnings,
+      daily_earned: useStored ? Number(weekRow.daily_earned ?? computed.dailyEarnings) : computed.dailyEarnings,
+      weekly_earned: useStored ? Number(weekRow.weekly_earned ?? computed.weeklyEarnings) : computed.weeklyEarnings,
+      total_earned: useStored ? Number(weekRow.total_earned ?? computed.total) : computed.total,
+    }
+  })
 }
