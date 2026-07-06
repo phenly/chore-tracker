@@ -62,6 +62,7 @@ export function useWeekData(weekStart) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [ps5PaidSavings, setPs5PaidSavings] = useState(0)
+  const [ps5UnpaidSavings, setPs5UnpaidSavings] = useState(0)
   const stateRef = useRef(state)
   stateRef.current = state
 
@@ -70,19 +71,18 @@ export function useWeekData(weekStart) {
     setLoading(true)
     setError(null)
     try {
-      const [baselineRes, dailyRes, weeklyRes, weeksRes, ps5Res] = await Promise.all([
+      const [baselineRes, dailyRes, weeklyRes, weeksRes, allWeeks] = await Promise.all([
         supabase.from('baseline_checks').select('*').eq('week_start', ws),
         supabase.from('daily_bonus_checks').select('*').eq('week_start', ws),
         supabase.from('weekly_bonus_checks').select('*').eq('week_start', ws),
         supabase.from('weeks').select('*').eq('week_start', ws).maybeSingle(),
-        supabase.from('weeks').select('total_earned').eq('is_paid', true),
+        loadAllWeeks(),
       ])
 
       if (baselineRes.error) throw baselineRes.error
       if (dailyRes.error) throw dailyRes.error
       if (weeklyRes.error) throw weeklyRes.error
       if (weeksRes.error) throw weeksRes.error
-      if (ps5Res.error) throw ps5Res.error
 
       const newState = buildStateFromRows(
         baselineRes.data || [],
@@ -90,10 +90,19 @@ export function useWeekData(weekStart) {
         weeklyRes.data || [],
         weeksRes.data,
       )
-      const savings = (ps5Res.data || []).reduce((sum, row) => sum + Number(row.total_earned || 0), 0)
+      // Paid savings = all paid weeks. Unpaid savings here excludes the loaded week —
+      // the current-week screen adds its own live total on top, so it updates as chores
+      // are checked without double-counting.
+      const paidSavings = allWeeks
+        .filter((w) => w.is_paid)
+        .reduce((sum, w) => sum + Number(w.total_earned || 0), 0)
+      const unpaidSavings = allWeeks
+        .filter((w) => !w.is_paid && w.week_start !== ws)
+        .reduce((sum, w) => sum + Number(w.total_earned || 0), 0)
 
       setState(newState)
-      setPs5PaidSavings(savings)
+      setPs5PaidSavings(paidSavings)
+      setPs5UnpaidSavings(unpaidSavings)
     } catch (err) {
       console.error('Failed to load week data:', err)
       setError(err.message || 'Failed to load data')
@@ -300,6 +309,7 @@ export function useWeekData(weekStart) {
     loading,
     error,
     ps5PaidSavings,
+    ps5UnpaidSavings,
     toggleBaseline,
     toggleDaily,
     toggleWeekly,

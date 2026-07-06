@@ -80,7 +80,7 @@ export const WEEKLY_BONUS = [
   { id: 'groceries', icon: '🛒', label: 'Put Away Groceries', value: 0.75 },
 ]
 
-export const PS5_GOAL = 500
+export const PS5_GOAL = 600
 
 // Compute earnings from current state
 export function computeEarnings({ baselineChecks, dailyChecks, weeklyChecks, todayIndex }) {

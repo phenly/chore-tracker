@@ -15,7 +15,7 @@ export default function CurrentWeek({ weekStart }) {
   const [showUnmarkConfirm, setShowUnmarkConfirm] = useState(false)
   const {
     baselineChecks, dailyChecks, weeklyChecks,
-    isPaid, totalEarned, loading, error, ps5PaidSavings,
+    isPaid, totalEarned, loading, error, ps5PaidSavings, ps5UnpaidSavings,
     toggleBaseline, toggleDaily, toggleWeekly, markPaid, unmarkPaid,
   } = useWeekData(weekStart)
 
@@ -32,8 +32,9 @@ export default function CurrentWeek({ weekStart }) {
     setShowUnmarkConfirm(false)
   }
 
-  // PS5 bar: paid segment = locked savings, unpaid = this week's potential
-  const unpaidSavings = isPaid ? 0 : total
+  // PS5 bar: paid segment = locked savings; unpaid = all other unpaid weeks plus
+  // this week's live total (so it updates as chores are checked).
+  const unpaidSavings = ps5UnpaidSavings + (isPaid ? 0 : total)
 
   if (loading) {
     return (
