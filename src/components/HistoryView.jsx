@@ -36,12 +36,17 @@ export default function HistoryView() {
 
   const currentWeekStart = getWeekStartStr()
 
+  // Load on mount and re-load whenever we return to the list from a week's detail,
+  // so edits (overrides, paid/unpaid) made in the detail view show up immediately.
   useEffect(() => {
+    if (selectedWeek) return
+    let cancelled = false
     loadAllWeeks()
-      .then(setWeeks)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false))
-  }, [])
+      .then((data) => { if (!cancelled) setWeeks(data) })
+      .catch((err) => { if (!cancelled) setError(err.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedWeek])
 
   if (selectedWeek) {
     return (

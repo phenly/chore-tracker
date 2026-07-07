@@ -67,10 +67,16 @@ export function effectiveTotal({ overrideTotal, isPaid, storedTotal, computedTot
   return Number(computedTotal ?? 0)
 }
 
-// Format an edit timestamp as "MM/DD/YYYY" (returns '' if absent)
+// Format an edit timestamp as "MM/DD/YYYY" (returns '' if absent).
+// Postgres/PostgREST returns e.g. "2026-07-07 18:01:23.594+00", which iOS Safari
+// won't parse — normalize it to ISO 8601 before falling back to a plain Date parse.
 export function fmtEditDate(ts) {
   if (!ts) return ''
-  const d = new Date(ts)
+  let d = new Date(ts)
+  if (Number.isNaN(d.getTime())) {
+    const iso = String(ts).replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')
+    d = new Date(iso)
+  }
   if (Number.isNaN(d.getTime())) return ''
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
