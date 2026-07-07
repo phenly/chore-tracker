@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { getAllWeeks, getWeekStartStr, getTodayIndex, computeEarnings } from '../lib/utils'
+import { getAllWeeks, getWeekStartStr, getTodayIndex, computeEarnings, effectiveTotal } from '../lib/utils'
 
 const EMPTY_BASELINE = {
   bed: [false, false, false, false, false, false, false],
@@ -22,6 +22,8 @@ function buildEmptyState() {
     isPaid: false,
     paidAt: null,
     totalEarned: null,
+    overrideTotal: null,
+    totalEditedAt: null,
   }
 }
 
@@ -52,6 +54,8 @@ function buildStateFromRows(baselineRows, dailyRows, weeklyRows, weekRow) {
     newState.isPaid = weekRow.is_paid
     newState.paidAt = weekRow.paid_at
     newState.totalEarned = weekRow.total_earned
+    newState.overrideTotal = weekRow.override_total ?? null
+    newState.totalEditedAt = weekRow.total_edited_at ?? null
   }
 
   return newState
@@ -186,6 +190,8 @@ export function useWeekData(weekStart) {
             isPaid: row.is_paid,
             paidAt: row.paid_at,
             totalEarned: row.total_earned,
+            overrideTotal: row.override_total ?? null,
+            totalEditedAt: row.total_edited_at ?? null,
           }))
           // Recompute PS5 savings silently when payday changes from another device
           supabase
@@ -272,18 +278,22 @@ export function useWeekData(weekStart) {
     ).then(({ error }) => { if (error) console.error('weekly sync error:', error) })
   }, [weekStart])
 
-  // Mark week as paid
+  // Mark week as paid. Stores the EFFECTIVE total (a manual override wins over the
+  // button-calculated total) so PS5 savings reflect the edited amount. The section
+  // breakdown is always stored button-calculated.
   const markPaid = useCallback(async (totalEarned, baselineEarned, dailyEarned, weeklyEarned) => {
     const now = new Date().toISOString()
-    setState((prev) => ({ ...prev, isPaid: true, paidAt: now, totalEarned }))
-    setPs5PaidSavings((prev) => prev + totalEarned)
+    const override = stateRef.current.overrideTotal
+    const finalTotal = (override !== null && override !== undefined) ? Number(override) : totalEarned
+    setState((prev) => ({ ...prev, isPaid: true, paidAt: now, totalEarned: finalTotal }))
+    setPs5PaidSavings((prev) => prev + finalTotal)
 
     await supabase.from('weeks').upsert(
       {
         week_start: weekStart,
         is_paid: true,
         paid_at: now,
-        total_earned: totalEarned,
+        total_earned: finalTotal,
         baseline_earned: baselineEarned,
         daily_earned: dailyEarned,
         weekly_earned: weeklyEarned,
@@ -304,6 +314,30 @@ export function useWeekData(weekStart) {
     )
   }, [weekStart])
 
+  // Save a manual total override (only meaningful while the week is unpaid — the UI
+  // enforces that). Records when it was edited for the "Edited on" note.
+  const saveOverride = useCallback(async (amount) => {
+    const now = new Date().toISOString()
+    const val = Number(amount)
+    setState((prev) => ({ ...prev, overrideTotal: val, totalEditedAt: now }))
+
+    await supabase.from('weeks').upsert(
+      { week_start: weekStart, override_total: val, total_edited_at: now },
+      { onConflict: 'week_start', ignoreDuplicates: false },
+    )
+  }, [weekStart])
+
+  // Clear the override — the week reverts to its button-calculated total and the
+  // "Edited on" note disappears.
+  const clearOverride = useCallback(async () => {
+    setState((prev) => ({ ...prev, overrideTotal: null, totalEditedAt: null }))
+
+    await supabase.from('weeks').upsert(
+      { week_start: weekStart, override_total: null, total_edited_at: null },
+      { onConflict: 'week_start', ignoreDuplicates: false },
+    )
+  }, [weekStart])
+
   return {
     ...state,
     loading,
@@ -315,6 +349,8 @@ export function useWeekData(weekStart) {
     toggleWeekly,
     markPaid,
     unmarkPaid,
+    saveOverride,
+    clearOverride,
   }
 }
 
@@ -363,16 +399,25 @@ export async function loadAllWeeks() {
     const computed = computeEarnings({ baselineChecks, dailyChecks, weeklyChecks, todayIndex })
 
     const isPaid = weekRow?.is_paid ?? false
-    // Paid weeks: use locked-in stored amounts (fall back to computed if a column is null
-    // on an older row). Unpaid weeks: always use freshly computed values.
+    const overrideTotal = weekRow?.override_total ?? null
+    // Breakdown (base/daily/weekly): paid weeks use locked-in stored amounts (falling
+    // back to computed if null on an older row); unpaid weeks use freshly computed
+    // values. The total is the EFFECTIVE total — a manual override wins over both.
     const useStored = isPaid && weekRow
     return {
       week_start: ws,
       is_paid: isPaid,
+      override_total: overrideTotal,
+      total_edited_at: weekRow?.total_edited_at ?? null,
       baseline_earned: useStored ? Number(weekRow.baseline_earned ?? computed.baselineEarnings) : computed.baselineEarnings,
       daily_earned: useStored ? Number(weekRow.daily_earned ?? computed.dailyEarnings) : computed.dailyEarnings,
       weekly_earned: useStored ? Number(weekRow.weekly_earned ?? computed.weeklyEarnings) : computed.weeklyEarnings,
-      total_earned: useStored ? Number(weekRow.total_earned ?? computed.total) : computed.total,
+      total_earned: effectiveTotal({
+        overrideTotal,
+        isPaid,
+        storedTotal: weekRow?.total_earned,
+        computedTotal: computed.total,
+      }),
     }
   })
 }

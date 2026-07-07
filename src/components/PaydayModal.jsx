@@ -1,6 +1,6 @@
 import { fmtDollar } from '../lib/utils'
 
-export default function PaydayModal({ total, baselineEarnings, dailyEarnings, weeklyEarnings, onConfirm, onCancel }) {
+export default function PaydayModal({ total, baselineEarnings, dailyEarnings, weeklyEarnings, edited = false, onConfirm, onCancel }) {
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 200,
@@ -61,6 +61,15 @@ export default function PaydayModal({ total, baselineEarnings, dailyEarnings, we
             <span style={{ fontSize: '1rem', fontWeight: 700 }}>Total</span>
             <span style={{ fontSize: '1.5rem', fontWeight: 900, color: '#fbbf24' }}>{fmtDollar(total)}</span>
           </div>
+          {edited && (
+            <div style={{
+              padding: '8px 16px', background: 'rgba(251,191,36,0.08)',
+              borderTop: '1px solid rgba(251,191,36,0.15)',
+              fontSize: '0.72rem', color: 'rgba(251,191,36,0.8)', textAlign: 'center', fontStyle: 'italic',
+            }}>
+              ✏️ Total was manually edited — overrides the breakdown above
+            </div>
+          )}
         </div>
 
         <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.35)', textAlign: 'center', marginBottom: '20px' }}>

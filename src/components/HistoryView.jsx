@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { loadAllWeeks } from '../hooks/useWeekData'
-import { formatWeekRange, fmtDollar, getWeekStartStr } from '../lib/utils'
+import { formatWeekRange, fmtDollar, fmtEditDate, getWeekStartStr } from '../lib/utils'
 import Header from './Header'
 import PS5Bar from './PS5Bar'
 import WeekDetail from './WeekDetail'
@@ -129,6 +129,11 @@ export default function HistoryView() {
                     <span style={{ marginLeft: '8px', fontSize: '0.7rem', color: '#a78bfa', fontWeight: 700 }}>
                       THIS WEEK
                     </span>
+                  )}
+                  {week.total_edited_at && (
+                    <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.35)', fontStyle: 'italic', marginTop: '2px' }}>
+                      ✏️ Edited on {fmtEditDate(week.total_edited_at)}
+                    </div>
                   )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

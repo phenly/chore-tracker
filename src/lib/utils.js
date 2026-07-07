@@ -55,6 +55,28 @@ export function fmtDollar(val) {
   return `$${Math.abs(val).toFixed(2)}`
 }
 
+// The code required to edit a week's total (UI gate, not real security)
+export const EDIT_CODE = '4120'
+
+// A week's effective total: a manual override wins over the paid/computed total.
+// Used everywhere a week's total is displayed or aggregated (paid button, progress
+// bar, history total, PS5 savings). The section breakdown stays button-calculated.
+export function effectiveTotal({ overrideTotal, isPaid, storedTotal, computedTotal }) {
+  if (overrideTotal !== null && overrideTotal !== undefined) return Number(overrideTotal)
+  if (isPaid) return Number(storedTotal ?? computedTotal ?? 0)
+  return Number(computedTotal ?? 0)
+}
+
+// Format an edit timestamp as "MM/DD/YYYY" (returns '' if absent)
+export function fmtEditDate(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return ''
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${mm}/${dd}/${d.getFullYear()}`
+}
+
 // Chore config data
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 

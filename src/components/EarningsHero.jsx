@@ -1,6 +1,6 @@
 import { fmtDollar } from '../lib/utils'
 
-export default function EarningsHero({ baselineEarnings, dailyEarnings, weeklyEarnings, total, baselineComplete }) {
+export default function EarningsHero({ baselineEarnings, dailyEarnings, weeklyEarnings, total }) {
   const pills = [
     { label: 'Base', val: baselineEarnings, color: baselineEarnings > 0 ? '#4ade80' : '#f87171', icon: '⭐' },
     { label: 'Daily', val: dailyEarnings, color: '#60a5fa', icon: '⚡' },
