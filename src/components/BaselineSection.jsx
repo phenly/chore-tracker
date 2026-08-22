@@ -2,6 +2,19 @@ import { useState } from 'react'
 import { DAYS, BASELINE_CHORES } from '../lib/utils'
 import SectionHeader from './SectionHeader'
 
+// One template drives the day-label header AND every chore row, so the columns cannot
+// drift apart. Day columns are fractional and the label column shrinks on narrow screens,
+// so all 7 days fit a phone; maxWidth pins the desktop look at the original 110px label
+// + 32px boxes (110 + 7*32 + 7*5 gaps = 369).
+const DAY_GRID = {
+  display: 'grid',
+  gridTemplateColumns: 'clamp(72px, 24vw, 110px) repeat(7, minmax(0, 1fr))',
+  gap: '5px',
+  alignItems: 'center',
+  width: '100%',
+  maxWidth: '369px',
+}
+
 export default function BaselineSection({ baselineChecks, todayIndex, onToggle, isPaid, baselineComplete }) {
   const [popAnim, setPopAnim] = useState(null)
 
@@ -33,10 +46,11 @@ export default function BaselineSection({ baselineChecks, todayIndex, onToggle, 
         transition: 'border-color 0.4s',
       }}>
         {/* Day labels */}
-        <div style={{ display: 'flex', gap: '5px', marginBottom: '8px', paddingLeft: '110px' }}>
+        <div style={{ ...DAY_GRID, marginBottom: '8px' }}>
+          <div />
           {DAYS.map((d, i) => (
             <div key={d} style={{
-              width: '32px', textAlign: 'center', fontSize: '0.7rem', flexShrink: 0,
+              textAlign: 'center', fontSize: '0.7rem',
               color: i === todayIndex ? '#fbbf24' : 'rgba(255,255,255,0.3)',
               fontWeight: i === todayIndex ? 800 : 400,
             }}>
@@ -46,15 +60,15 @@ export default function BaselineSection({ baselineChecks, todayIndex, onToggle, 
         </div>
 
         {BASELINE_CHORES.map((chore) => (
-          <div key={chore.id} style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '6px' }}>
+          <div key={chore.id} style={{ ...DAY_GRID, marginBottom: '8px' }}>
             {/* Label */}
-            <div style={{ width: '110px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ fontSize: '1.2rem' }}>{chore.icon}</span>
               <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>{chore.label}</span>
             </div>
 
             {chore.daily ? (
-              <div style={{ display: 'flex', gap: '5px' }}>
+              <>
                 {DAYS.map((d, i) => {
                   const checked = baselineChecks[chore.id][i]
                   const isPast = i <= todayIndex
@@ -67,7 +81,7 @@ export default function BaselineSection({ baselineChecks, todayIndex, onToggle, 
                       className={`tap${popAnim === animKey ? ' pop-anim' : ''}`}
                       onClick={() => handleToggle(chore.id, i)}
                       style={{
-                        width: '32px', height: '32px', flexShrink: 0,
+                        width: '100%', aspectRatio: '1',
                         borderRadius: '8px',
                         border: i === todayIndex
                           ? '2px solid rgba(251,191,36,0.6)'
@@ -88,13 +102,14 @@ export default function BaselineSection({ baselineChecks, todayIndex, onToggle, 
                     </div>
                   )
                 })}
-              </div>
+              </>
             ) : (
               // Laundry — single wide button
               <div
                 className={`tap${popAnim === 'laundry' ? ' pop-anim' : ''}`}
                 onClick={() => handleToggle(chore.id, null)}
                 style={{
+                  gridColumn: '2 / -1', justifySelf: 'start',
                   padding: '7px 16px', borderRadius: '9px',
                   background: baselineChecks.laundry
                     ? 'linear-gradient(135deg, #4ade80, #16a34a)'
