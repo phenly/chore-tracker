@@ -14,6 +14,13 @@ const EMPTY_DAILY = {
 }
 const EMPTY_WEEKLY = { mow: false, trash: false, tp: false, groceries: false }
 
+// A paused Supabase project takes a few seconds to become queryable after it wakes.
+// Total patience across retries ≈ 7s, which covers the usual cold start.
+const LOAD_RETRIES = 4
+const RETRY_DELAYS_MS = [1000, 2000, 4000]
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
 function buildEmptyState() {
   return {
     baselineChecks: JSON.parse(JSON.stringify(EMPTY_BASELINE)),
@@ -70,49 +77,58 @@ export function useWeekData(weekStart) {
   const stateRef = useRef(state)
   stateRef.current = state
 
-  // Initial load only — never called again after mount
+  // Initial load, plus manual retry. Transient failures are retried automatically:
+  // a Supabase project waking from its paused state answers with PostgREST's
+  // "Could not query the database for the schema cache" until the DB is reachable,
+  // which resolves on its own within a few seconds.
   const loadWeek = useCallback(async (ws) => {
     setLoading(true)
     setError(null)
-    try {
-      const [baselineRes, dailyRes, weeklyRes, weeksRes, allWeeks] = await Promise.all([
-        supabase.from('baseline_checks').select('*').eq('week_start', ws),
-        supabase.from('daily_bonus_checks').select('*').eq('week_start', ws),
-        supabase.from('weekly_bonus_checks').select('*').eq('week_start', ws),
-        supabase.from('weeks').select('*').eq('week_start', ws).maybeSingle(),
-        loadAllWeeks(),
-      ])
+    let lastErr = null
+    for (let attempt = 0; attempt < LOAD_RETRIES; attempt++) {
+      if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1])
+      try {
+        const [baselineRes, dailyRes, weeklyRes, weeksRes, allWeeks] = await Promise.all([
+          supabase.from('baseline_checks').select('*').eq('week_start', ws),
+          supabase.from('daily_bonus_checks').select('*').eq('week_start', ws),
+          supabase.from('weekly_bonus_checks').select('*').eq('week_start', ws),
+          supabase.from('weeks').select('*').eq('week_start', ws).maybeSingle(),
+          loadAllWeeks(),
+        ])
 
-      if (baselineRes.error) throw baselineRes.error
-      if (dailyRes.error) throw dailyRes.error
-      if (weeklyRes.error) throw weeklyRes.error
-      if (weeksRes.error) throw weeksRes.error
+        if (baselineRes.error) throw baselineRes.error
+        if (dailyRes.error) throw dailyRes.error
+        if (weeklyRes.error) throw weeklyRes.error
+        if (weeksRes.error) throw weeksRes.error
 
-      const newState = buildStateFromRows(
-        baselineRes.data || [],
-        dailyRes.data || [],
-        weeklyRes.data || [],
-        weeksRes.data,
-      )
-      // Paid savings = all paid weeks. Unpaid savings here excludes the loaded week —
-      // the current-week screen adds its own live total on top, so it updates as chores
-      // are checked without double-counting.
-      const paidSavings = allWeeks
-        .filter((w) => w.is_paid)
-        .reduce((sum, w) => sum + Number(w.total_earned || 0), 0)
-      const unpaidSavings = allWeeks
-        .filter((w) => !w.is_paid && w.week_start !== ws)
-        .reduce((sum, w) => sum + Number(w.total_earned || 0), 0)
+        const newState = buildStateFromRows(
+          baselineRes.data || [],
+          dailyRes.data || [],
+          weeklyRes.data || [],
+          weeksRes.data,
+        )
+        // Paid savings = all paid weeks. Unpaid savings here excludes the loaded week —
+        // the current-week screen adds its own live total on top, so it updates as chores
+        // are checked without double-counting.
+        const paidSavings = allWeeks
+          .filter((w) => w.is_paid)
+          .reduce((sum, w) => sum + Number(w.total_earned || 0), 0)
+        const unpaidSavings = allWeeks
+          .filter((w) => !w.is_paid && w.week_start !== ws)
+          .reduce((sum, w) => sum + Number(w.total_earned || 0), 0)
 
-      setState(newState)
-      setPs5PaidSavings(paidSavings)
-      setPs5UnpaidSavings(unpaidSavings)
-    } catch (err) {
-      console.error('Failed to load week data:', err)
-      setError(err.message || 'Failed to load data')
-    } finally {
-      setLoading(false)
+        setState(newState)
+        setPs5PaidSavings(paidSavings)
+        setPs5UnpaidSavings(unpaidSavings)
+        setLoading(false)
+        return
+      } catch (err) {
+        lastErr = err
+        console.error(`Failed to load week data (attempt ${attempt + 1}/${LOAD_RETRIES}):`, err)
+      }
     }
+    setError(lastErr?.message || 'Failed to load data')
+    setLoading(false)
   }, [])
 
   useEffect(() => {
@@ -351,6 +367,7 @@ export function useWeekData(weekStart) {
     unmarkPaid,
     saveOverride,
     clearOverride,
+    retry: () => loadWeek(weekStart),
   }
 }
 

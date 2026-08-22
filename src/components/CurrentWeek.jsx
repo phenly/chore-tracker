@@ -15,7 +15,7 @@ export default function CurrentWeek({ weekStart }) {
     isPaid, totalEarned, overrideTotal, totalEditedAt,
     loading, error, ps5PaidSavings, ps5UnpaidSavings,
     toggleBaseline, toggleDaily, toggleWeekly,
-    markPaid, unmarkPaid, saveOverride, clearOverride,
+    markPaid, unmarkPaid, saveOverride, clearOverride, retry,
   } = useWeekData(weekStart)
 
   const earnings = computeEarnings({ baselineChecks, dailyChecks, weeklyChecks, todayIndex })
@@ -48,8 +48,19 @@ export default function CurrentWeek({ weekStart }) {
         <div style={{ margin: '20px 16px', padding: '20px', borderRadius: '16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
           <div style={{ fontWeight: 700, marginBottom: '8px', color: '#f87171' }}>⚠️ Connection Error</div>
           <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', marginBottom: '16px' }}>{error}</div>
+          <button
+            onClick={retry}
+            style={{
+              padding: '10px 20px', borderRadius: '10px', border: '1px solid rgba(167,139,250,0.4)',
+              background: 'rgba(167,139,250,0.15)', color: '#a78bfa', fontWeight: 700,
+              fontSize: '0.9rem', cursor: 'pointer', marginBottom: '16px',
+            }}
+          >
+            Try again
+          </button>
           <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)' }}>
-            Make sure the Supabase database tables are set up. Run the SQL migration in{' '}
+            If this keeps happening, make sure the Supabase project is awake and the database
+            tables are set up — run the SQL migration in{' '}
             <code style={{ color: '#a78bfa' }}>supabase/migrations/001_initial.sql</code>.
           </div>
         </div>
